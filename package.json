@@ -1,0 +1,22 @@
+{
+  "name": "trackline",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "watch": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "docker:build": "docker build -t trackline:latest ."
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "hono": "^4.6.14",
+    "jose": "^5.9.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

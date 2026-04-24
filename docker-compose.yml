@@ -1,0 +1,26 @@
+services:
+  now-playing:
+    image: ${TRACKLINE_IMAGE:-trackline:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PORT:-3000}:3000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+    env_file:
+      - .env
+      - ./runtime/.env
+    volumes:
+      - ./runtime:/app/runtime
+      # Optional when using APPLE_PRIVATE_KEY_PATH:
+      # - ./AuthKey_XXXXXXXXXX.p8:/run/secrets/apple/AuthKey.p8:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Get Apple Music User Token</title>
+  <script src="https://js-cdn.music.apple.com/musickit/v3/musickit.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 560px; margin: 60px auto; padding: 0 20px; }
+    pre { background: #f4f4f4; padding: 16px; border-radius: 8px; white-space: pre-wrap; word-break: break-all; }
+    button { padding: 10px 20px; font-size: 16px; cursor: pointer; border-radius: 8px; border: none; background: #111; color: #fff; }
+    button:disabled { opacity: 0.4; }
+    .token { margin-top: 20px; }
+    label { font-size: 13px; color: #666; display: block; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <h2>Apple Music — one-time user token</h2>
+  <p>
+    Prefer the guided setup page at <code>http://localhost:3000/setup</code> when the
+    container is running. This standalone file is kept as a fallback helper.
+  </p>
+
+  <p>
+    Paste your <strong>developer JWT</strong> below (generate it from your
+    <code>AuthKey_*.p8</code> file using the service's token generator,
+    or run <code>yarn dev</code> and hit <code>/dev-token</code>).
+  </p>
+
+  <label for="devtoken">Developer JWT</label>
+  <textarea id="devtoken" rows="4" style="width:100%;font-size:12px;border-radius:6px;border:1px solid #ccc;padding:8px"></textarea>
+
+  <br /><br />
+  <button id="authBtn" onclick="authorize()">Authorize with Apple</button>
+
+  <div class="token" id="result" style="display:none">
+    <p>✅ Copy this into your <code>.env</code> as <code>APPLE_MUSIC_USER_TOKEN</code>:</p>
+    <pre id="tokenOutput"></pre>
+  </div>
+
+  <script>
+    async function authorize() {
+      const devToken = document.getElementById('devtoken').value.trim();
+      if (!devToken) { alert('Paste your developer JWT first.'); return; }
+
+      document.getElementById('authBtn').disabled = true;
+
+      await MusicKit.configure({
+        developerToken: devToken,
+        app: { name: 'now-playing-auth', build: '1.0' },
+      });
+
+      const music = MusicKit.getInstance();
+
+      try {
+        const userToken = await music.authorize();
+        document.getElementById('tokenOutput').textContent = userToken;
+        document.getElementById('result').style.display = 'block';
+      } catch (e) {
+        alert('Authorization failed: ' + e.message);
+        document.getElementById('authBtn').disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
