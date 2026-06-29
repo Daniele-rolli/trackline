@@ -2,9 +2,11 @@
 
 Self-hosted Apple Music now-playing API for your website.
 
+[![Docker](https://github.com/Daniele-rolli/trackline/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Daniele-rolli/trackline/actions/workflows/docker-publish.yml)
+
 The service polls Apple Music `recently played` and exposes:
 - `GET /` (browser landing page: endpoints + now-playing preview)
-- `GET /now-playing`
+- `GET /now-playing` — current track with synced lyrics
 - `GET /health`
 - `GET /dev-token` (setup helper, can be protected)
 - `GET /config-status` (setup/runtime state, can be protected)
@@ -56,7 +58,13 @@ When exposing behind a domain + reverse proxy:
 
 ## Docker Image + Compose Snippet
 
-1. Build the image:
+A pre-built image is published to **GitHub Container Registry** on every push to `main` and each version tag:
+
+```bash
+docker pull ghcr.io/daniele-rolli/trackline:latest
+```
+
+To build locally instead:
 
 ```bash
 yarn docker:build
@@ -76,7 +84,7 @@ touch trackline/runtime/.env
 ```yaml
 services:
   trackline:
-    image: trackline:latest
+    image: ghcr.io/daniele-rolli/trackline:latest
     container_name: trackline
     init: true
     restart: unless-stopped
@@ -200,10 +208,16 @@ curl -H "Authorization: Bearer $NOW_PLAYING_AUTH_TOKEN" http://localhost:3000/no
     "isPlaying": true,
     "source": "recently-played"
   },
+  "lyrics": [
+    { "time": 13.42, "text": "This is the first lyric line" },
+    { "time": 17.88, "text": "This is the second lyric line" }
+  ],
   "fetchedAt": 1712345678901,
   "error": null
 }
 ```
+
+Lyrics are fetched from [LRCLib](https://lrclib.net/) when a new track is detected and cached in-memory so each unique song is fetched at most once per server lifetime.
 
 ## Notes
 
