@@ -313,10 +313,30 @@ async function getDeveloperToken() {
     devTokenCache = { token, expiresAt: now + expiresInSeconds * 1_000 };
     return token;
 }
+function parseLyrics(syncedLyrics) {
+    const lines = syncedLyrics.split("\n");
+    const result = [];
+    const timeRegex = /\[(\d+):(\d+)\.(\d+)\]/;
+    for (const line of lines) {
+        const match = timeRegex.exec(line);
+        if (!match)
+            continue;
+        const minutes = parseInt(match[1], 10);
+        const seconds = parseInt(match[2], 10);
+        const ms = parseInt(match[3], 10);
+        const time = minutes * 60 + seconds + ms / 100;
+        const text = line.replace(timeRegex, "").trim();
+        if (text) {
+            result.push({ time, text });
+        }
+    }
+    return result.sort((a, b) => a.time - b.time);
+}
 let cache = {
     track: null,
     fetchedAt: Date.now(),
     error: missingForPolling().length ? setupErrorMessage(missingForPolling()) : null,
+    lyrics: [],
 };
 let playbackHeuristic = {
     currentTrackId: null,
@@ -352,6 +372,40 @@ function inferIsPlaying(params) {
     const byObservedWindow = elapsedSinceTransition <= durationInMillis + IS_PLAYING_GRACE_MS;
     return byObservedWindow;
 }
+const lyricsCache = new Map();
+function lyricsCacheKey(trackName, artistName) {
+    return `${trackName.toLowerCase()}|${artistName.toLowerCase()}`;
+}
+async function fetchLyrics(trackName, artistName) {
+    const cacheKey = lyricsCacheKey(trackName, artistName);
+    const cached = lyricsCache.get(cacheKey);
+    if (cached !== undefined) {
+        return cached;
+    }
+    try {
+        const url = `https://lrclib.net/api/search?track_name=${encodeURIComponent(trackName)}&artist_name=${encodeURIComponent(artistName)}`;
+        const res = await fetch(url, {
+            headers: { accept: "application/json" },
+            signal: AbortSignal.timeout(5000),
+        });
+        if (!res.ok)
+            return [];
+        const data = (await res.json());
+        if (Array.isArray(data) && data.length > 0) {
+            const bestMatch = data.find((item) => item.syncedLyrics);
+            if (bestMatch?.syncedLyrics && typeof bestMatch.syncedLyrics === "string") {
+                const parsed = parseLyrics(bestMatch.syncedLyrics);
+                lyricsCache.set(cacheKey, parsed);
+                return parsed;
+            }
+        }
+        lyricsCache.set(cacheKey, []);
+        return [];
+    }
+    catch {
+        return [];
+    }
+}
 async function poll() {
     const missing = missingForPolling();
     if (missing.length) {
@@ -360,6 +414,7 @@ async function poll() {
             fetchedAt: Date.now(),
             error: setupErrorMessage(missing),
             track: null,
+            lyrics: [],
         };
         return;
     }
@@ -381,7 +436,7 @@ async function poll() {
                 currentTrackId: null,
                 currentTrackTransitionAt: null,
             };
-            cache = { track: null, fetchedAt: Date.now(), error: null };
+            cache = { track: null, fetchedAt: Date.now(), error: null, lyrics: [] };
             return;
         }
         const attrs = item.attributes;
@@ -400,22 +455,33 @@ async function poll() {
             : false;
         const artwork = attrs?.artwork;
         const rawArt = typeof artwork?.url === "string" ? artwork.url : "";
+        const newTrack = {
+            name: String(attrs?.name ?? "Unknown"),
+            artist: String(attrs?.artistName ?? "Unknown"),
+            album: String(attrs?.albumName ?? ""),
+            albumArt: rawArt ? artUrl(rawArt) : "",
+            isPlaying,
+            source: "recently-played",
+        };
+        const trackKey = `${newTrack.name}|${newTrack.artist}`;
+        const prevTrackKey = cache.track ? `${cache.track.name}|${cache.track.artist}` : "";
+        let lyrics;
+        if (trackKey !== prevTrackKey) {
+            lyrics = await fetchLyrics(newTrack.name, newTrack.artist);
+        }
+        else {
+            lyrics = cache.lyrics ?? [];
+        }
         cache = {
-            track: {
-                name: String(attrs?.name ?? "Unknown"),
-                artist: String(attrs?.artistName ?? "Unknown"),
-                album: String(attrs?.albumName ?? ""),
-                albumArt: rawArt ? artUrl(rawArt) : "",
-                isPlaying,
-                source: "recently-played",
-            },
+            track: newTrack,
             fetchedAt: now,
             error: null,
+            lyrics,
         };
     }
     catch (err) {
         console.error("[poll]", err);
-        cache = { ...cache, fetchedAt: Date.now(), error: String(err) };
+        cache = { ...cache, fetchedAt: Date.now(), error: String(err), lyrics: [] };
     }
 }
 void poll();
@@ -572,7 +638,7 @@ app.get("/now-playing", (c) => {
     if (authError) {
         return authError;
     }
-    return c.json({ track: cache.track, fetchedAt: cache.fetchedAt, error: cache.error });
+    return c.json({ track: cache.track, fetchedAt: cache.fetchedAt, error: cache.error, lyrics: cache.lyrics });
 });
 app.get("/dev-token", async (c) => {
     const setupEnabledError = requireSetupEnabled(c);
