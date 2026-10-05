@@ -166,6 +166,22 @@ function missingForPolling(): string[] {
   return missing;
 }
 
+function userTokenShapeError(): string | null {
+  const token = APPLE_MUSIC_USER_TOKEN.trim();
+  if (!token) {
+    return null;
+  }
+  const segments = token.split(".");
+  if (segments.length !== 3 || !token.startsWith("eyJ")) {
+    return (
+      `APPLE_MUSIC_USER_TOKEN does not look like a MusicKit user token ` +
+      `(expected a 3-part JWT starting with "eyJ", got ${segments.length} segment` +
+      `${segments.length === 1 ? "" : "s"}). Mint a fresh one via /setup.`
+    );
+  }
+  return null;
+}
+
 function setupErrorMessage(missing: readonly string[]): string {
   const base = `Missing required env: ${missing.join(", ")}. Open /setup to complete onboarding.`;
   if (privateKeyConfig.error) {
@@ -538,11 +554,19 @@ async function poll(): Promise<void> {
     return;
   }
 
+  const shapeError = userTokenShapeError();
+  if (shapeError) {
+    cache = { ...cache, fetchedAt: Date.now(), error: shapeError, track: null, lyrics: [] };
+    return;
+  }
+
   try {
     const devToken = await getDeveloperToken();
 
-    const res = await fetch("https://api.music.apple.com/v1/me/recent/played/tracks?limit=1", {
-      headers: {
+    const res = await fetch(
+      "https://api.music.apple.com/v1/me/recent/played/tracks?types=songs,library-songs&limit=1",
+      {
+        headers: {
         Authorization: `Bearer ${devToken}`,
         "Music-User-Token": APPLE_MUSIC_USER_TOKEN,
       },
@@ -725,6 +749,11 @@ app.get("/config-status", (c) => {
     readyForDevToken: devTokenMissing.length === 0,
     missingForPolling: pollMissing,
     missingForDevToken: devTokenMissing,
+    userTokenShape: !APPLE_MUSIC_USER_TOKEN.trim()
+      ? "missing"
+      : userTokenShapeError()
+        ? "invalid"
+        : "ok",
     expectedEnv: {
       APPLE_TEAM_ID: !!APPLE_TEAM_ID,
       APPLE_KEY_ID: !!APPLE_KEY_ID,
