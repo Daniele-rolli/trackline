@@ -29,7 +29,10 @@ function loadEnvFile(filepath: string): void {
 // Load env files for local runs (runtime/.env takes precedence).
 // In Docker, env vars are passed at runtime.
 try {
-  const envFiles = [resolve(process.cwd(), "runtime/.env"), resolve(process.cwd(), ".env")];
+  const envFiles = [
+    resolve(process.cwd(), "runtime/.env"),
+    resolve(process.cwd(), ".env"),
+  ];
   for (const filepath of envFiles) {
     loadEnvFile(filepath);
   }
@@ -58,7 +61,8 @@ const SETUP_AUTH_REQUIRED_VALUE =
     : HOST === "127.0.0.1" && ALLOWED_HOSTS.length === 0
       ? "false"
       : "true";
-const SETUP_AUTH_REQUIRED = SETUP_AUTH_REQUIRED_VALUE.trim().toLowerCase() === "true";
+const SETUP_AUTH_REQUIRED =
+  SETUP_AUTH_REQUIRED_VALUE.trim().toLowerCase() === "true";
 const SETUP_AUTH_TOKEN = process.env.SETUP_AUTH_TOKEN ?? "";
 const NOW_PLAYING_AUTH_TOKEN = process.env.NOW_PLAYING_AUTH_TOKEN ?? "";
 const REQUIRE_HTTPS_RAW = process.env.REQUIRE_HTTPS;
@@ -69,9 +73,12 @@ const REQUIRE_HTTPS_VALUE =
       ? "false"
       : "true";
 const REQUIRE_HTTPS = REQUIRE_HTTPS_VALUE.trim().toLowerCase() === "true";
-const SETUP_ENABLED = (process.env.SETUP_ENABLED ?? "true").trim().toLowerCase() !== "false";
+const SETUP_ENABLED =
+  (process.env.SETUP_ENABLED ?? "true").trim().toLowerCase() !== "false";
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
-const RATE_LIMIT_NOW_PLAYING = Number(process.env.RATE_LIMIT_NOW_PLAYING ?? 120);
+const RATE_LIMIT_NOW_PLAYING = Number(
+  process.env.RATE_LIMIT_NOW_PLAYING ?? 120,
+);
 const RATE_LIMIT_SETUP = Number(process.env.RATE_LIMIT_SETUP ?? 30);
 const RATE_LIMIT_DEV_TOKEN = Number(process.env.RATE_LIMIT_DEV_TOKEN ?? 10);
 const RUNTIME_DIR = resolve(process.cwd(), "runtime");
@@ -112,7 +119,9 @@ function resolvePrivateKeyConfig(): PrivateKeyConfig {
     };
   }
 
-  const resolvedPath = isAbsolute(fromPath) ? fromPath : resolve(process.cwd(), fromPath);
+  const resolvedPath = isAbsolute(fromPath)
+    ? fromPath
+    : resolve(process.cwd(), fromPath);
 
   try {
     const value = readFileSync(resolvedPath, "utf8").trim();
@@ -171,12 +180,11 @@ function userTokenShapeError(): string | null {
   if (!token) {
     return null;
   }
-  const segments = token.split(".");
-  if (segments.length !== 3 || !token.startsWith("eyJ")) {
+  // Music User Tokens are long opaque strings, NOT JWTs. Only reject obvious paste mistakes.
+  if (/\s/.test(token) || token.includes('"') || token.length < 50) {
     return (
-      `APPLE_MUSIC_USER_TOKEN does not look like a MusicKit user token ` +
-      `(expected a 3-part JWT starting with "eyJ", got ${segments.length} segment` +
-      `${segments.length === 1 ? "" : "s"}). Mint a fresh one via /setup.`
+      "APPLE_MUSIC_USER_TOKEN looks malformed (contains whitespace/quotes or is too short). " +
+      "Mint a fresh one via /setup."
     );
   }
   return null;
@@ -196,7 +204,8 @@ function requestToken(c: Context): string {
     return authHeader.slice(7).trim();
   }
 
-  const explicitHeader = c.req.header("x-access-token") ?? c.req.header("x-setup-token") ?? "";
+  const explicitHeader =
+    c.req.header("x-access-token") ?? c.req.header("x-setup-token") ?? "";
   if (explicitHeader.trim()) {
     return explicitHeader.trim();
   }
@@ -222,7 +231,8 @@ function clientIp(c: Context): string {
 
 function requestHost(c: Context): string {
   const xForwardedHost = c.req.header("x-forwarded-host");
-  const hostHeader = xForwardedHost?.split(",")[0].trim() || c.req.header("host") || "";
+  const hostHeader =
+    xForwardedHost?.split(",")[0].trim() || c.req.header("host") || "";
   return hostHeader.toLowerCase().replace(/:\d+$/, "");
 }
 
@@ -273,8 +283,11 @@ function requireSetupEnabled(c: Context): Response | null {
   }
 
   return c.json(
-    { error: "Setup routes are disabled. Set SETUP_ENABLED=true to enable onboarding endpoints." },
-    404
+    {
+      error:
+        "Setup routes are disabled. Set SETUP_ENABLED=true to enable onboarding endpoints.",
+    },
+    404,
   );
 }
 
@@ -296,7 +309,11 @@ function pruneRateWindows(now: number): void {
   }
 }
 
-function enforceRateLimit(c: Context, bucket: string, limitInput: number): Response | null {
+function enforceRateLimit(
+  c: Context,
+  bucket: string,
+  limitInput: number,
+): Response | null {
   const limit = normalizeLimit(limitInput, 0);
   if (limit <= 0) {
     return null;
@@ -321,21 +338,28 @@ function enforceRateLimit(c: Context, bucket: string, limitInput: number): Respo
     return null;
   }
 
-  const retryAfterSec = Math.max(1, Math.ceil((existing.resetAt - now) / 1_000));
+  const retryAfterSec = Math.max(
+    1,
+    Math.ceil((existing.resetAt - now) / 1_000),
+  );
   c.header("Retry-After", String(retryAfterSec));
   return c.json({ error: "Too many requests. Try again later." }, 429);
 }
 
 function requireSetupAuth(c: Context): Response | null {
   const host = requestHost(c);
-  const publicRequestWithoutToken = !SETUP_AUTH_TOKEN.trim() && host.length > 0 && !isLocalHost(host);
-  if ((SETUP_AUTH_REQUIRED || publicRequestWithoutToken) && !SETUP_AUTH_TOKEN.trim()) {
+  const publicRequestWithoutToken =
+    !SETUP_AUTH_TOKEN.trim() && host.length > 0 && !isLocalHost(host);
+  if (
+    (SETUP_AUTH_REQUIRED || publicRequestWithoutToken) &&
+    !SETUP_AUTH_TOKEN.trim()
+  ) {
     return c.json(
       {
         error:
           "SETUP_AUTH_TOKEN is required for setup routes in this deployment mode. Configure it in runtime/.env.",
       },
-      403
+      403,
     );
   }
 
@@ -352,7 +376,7 @@ function requireSetupAuth(c: Context): Response | null {
       error:
         "Unauthorized. Provide setup token using Authorization: Bearer <token> or ?token=<token>.",
     },
-    401
+    401,
   );
 }
 
@@ -370,7 +394,7 @@ function requireNowPlayingAuth(c: Context): Response | null {
       error:
         "Unauthorized. Provide now-playing token using Authorization: Bearer <token> or ?token=<token>.",
     },
-    401
+    401,
   );
 }
 
@@ -404,17 +428,28 @@ async function getDeveloperToken(origins: string[] = []): Promise<string> {
     .setExpirationTime(`${expiresInSeconds}s`)
     .sign(privateKey);
 
-  devTokenCache.set(cacheKey, { token, expiresAt: now + expiresInSeconds * 1_000 });
+  devTokenCache.set(cacheKey, {
+    token,
+    expiresAt: now + expiresInSeconds * 1_000,
+  });
   return token;
 }
 
 function browserOrigin(c: Context): string[] {
-  const override = (process.env.MUSICKIT_ORIGINS ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  const override = (process.env.MUSICKIT_ORIGINS ?? "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
   if (override.length) {
     return override;
   }
   const host = c.req.header("x-forwarded-host") ?? c.req.header("host") ?? "";
-  const proto = (c.req.header("x-forwarded-proto") ?? new URL(c.req.url).protocol.replace(":", "")).split(",")[0].trim();
+  const proto = (
+    c.req.header("x-forwarded-proto") ??
+    new URL(c.req.url).protocol.replace(":", "")
+  )
+    .split(",")[0]
+    .trim();
   return host ? [`${proto}://${host}`] : [];
 }
 
@@ -470,7 +505,9 @@ interface PlaybackHeuristicState {
 let cache: CachedState = {
   track: null,
   fetchedAt: Date.now(),
-  error: missingForPolling().length ? setupErrorMessage(missingForPolling()) : null,
+  error: missingForPolling().length
+    ? setupErrorMessage(missingForPolling())
+    : null,
   lyrics: [],
 };
 let playbackHeuristic: PlaybackHeuristicState = {
@@ -514,7 +551,8 @@ function inferIsPlaying(params: {
   }
 
   const elapsedSinceTransition = now - transitionAt;
-  const byObservedWindow = elapsedSinceTransition <= durationInMillis + IS_PLAYING_GRACE_MS;
+  const byObservedWindow =
+    elapsedSinceTransition <= durationInMillis + IS_PLAYING_GRACE_MS;
 
   return byObservedWindow;
 }
@@ -525,7 +563,10 @@ function lyricsCacheKey(trackName: string, artistName: string): string {
   return `${trackName.toLowerCase()}|${artistName.toLowerCase()}`;
 }
 
-async function fetchLyrics(trackName: string, artistName: string): Promise<LyricLine[]> {
+async function fetchLyrics(
+  trackName: string,
+  artistName: string,
+): Promise<LyricLine[]> {
   const cacheKey = lyricsCacheKey(trackName, artistName);
   const cached = lyricsCache.get(cacheKey);
   if (cached !== undefined) {
@@ -542,7 +583,10 @@ async function fetchLyrics(trackName: string, artistName: string): Promise<Lyric
     const data = (await res.json()) as Array<Record<string, unknown>>;
     if (Array.isArray(data) && data.length > 0) {
       const bestMatch = data.find((item) => item.syncedLyrics);
-      if (bestMatch?.syncedLyrics && typeof bestMatch.syncedLyrics === "string") {
+      if (
+        bestMatch?.syncedLyrics &&
+        typeof bestMatch.syncedLyrics === "string"
+      ) {
         const parsed = parseLyrics(bestMatch.syncedLyrics);
         lyricsCache.set(cacheKey, parsed);
         return parsed;
@@ -570,7 +614,13 @@ async function poll(): Promise<void> {
 
   const shapeError = userTokenShapeError();
   if (shapeError) {
-    cache = { ...cache, fetchedAt: Date.now(), error: shapeError, track: null, lyrics: [] };
+    cache = {
+      ...cache,
+      fetchedAt: Date.now(),
+      error: shapeError,
+      track: null,
+      lyrics: [],
+    };
     return;
   }
 
@@ -581,10 +631,11 @@ async function poll(): Promise<void> {
       "https://api.music.apple.com/v1/me/recent/played/tracks?types=songs,library-songs&limit=1",
       {
         headers: {
-        Authorization: `Bearer ${devToken}`,
-        "Music-User-Token": APPLE_MUSIC_USER_TOKEN,
+          Authorization: `Bearer ${devToken}`,
+          "Music-User-Token": APPLE_MUSIC_USER_TOKEN,
+        },
       },
-    });
+    );
 
     if (!res.ok) {
       throw new Error(`Apple API ${res.status}: ${await res.text()}`);
@@ -607,7 +658,8 @@ async function poll(): Promise<void> {
     const trackId = String((item as { id?: unknown }).id ?? "");
     const durationCandidate = attrs?.durationInMillis;
     const durationInMillis =
-      typeof durationCandidate === "number" && Number.isFinite(durationCandidate)
+      typeof durationCandidate === "number" &&
+      Number.isFinite(durationCandidate)
         ? durationCandidate
         : null;
     const isPlaying =
@@ -631,7 +683,9 @@ async function poll(): Promise<void> {
     };
 
     const trackKey = `${newTrack.name}|${newTrack.artist}`;
-    const prevTrackKey = cache.track ? `${cache.track.name}|${cache.track.artist}` : "";
+    const prevTrackKey = cache.track
+      ? `${cache.track.name}|${cache.track.artist}`
+      : "";
 
     let lyrics: LyricLine[];
     if (trackKey !== prevTrackKey) {
@@ -677,14 +731,19 @@ app.use("*", async (c, next) => {
   // MusicKit JS authorize() needs the page origin; "no-referrer" breaks it.
   c.header(
     "Referrer-Policy",
-    c.req.path.startsWith("/setup") ? "strict-origin-when-cross-origin" : "no-referrer",
+    c.req.path.startsWith("/setup")
+      ? "strict-origin-when-cross-origin"
+      : "no-referrer",
   );
   c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   if (c.req.path !== "/health") {
     c.header("Cache-Control", "no-store");
   }
   if (REQUIRE_HTTPS) {
-    c.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    c.header(
+      "Strict-Transport-Security",
+      "max-age=31536000; includeSubDomains",
+    );
   }
 });
 
@@ -835,7 +894,12 @@ app.get("/now-playing", (c) => {
   if (authError) {
     return authError;
   }
-  return c.json({ track: cache.track, fetchedAt: cache.fetchedAt, error: cache.error, lyrics: cache.lyrics });
+  return c.json({
+    track: cache.track,
+    fetchedAt: cache.fetchedAt,
+    error: cache.error,
+    lyrics: cache.lyrics,
+  });
 });
 
 app.get("/dev-token", async (c) => {
@@ -893,12 +957,17 @@ app.post("/setup/save-env", async (c) => {
     }
 
     mkdirSync(RUNTIME_DIR, { recursive: true });
-    writeFileSync(RUNTIME_ENV_PATH, content.endsWith("\n") ? content : `${content}\n`, "utf8");
+    writeFileSync(
+      RUNTIME_ENV_PATH,
+      content.endsWith("\n") ? content : `${content}\n`,
+      "utf8",
+    );
 
     return c.json({
       ok: true,
       path: RUNTIME_ENV_PATH,
-      message: "Saved runtime env file. Restart service/container to apply updated values.",
+      message:
+        "Saved runtime env file. Restart service/container to apply updated values.",
     });
   } catch (err) {
     return c.json({ error: String(err) }, 400);
