@@ -374,9 +374,11 @@ function requireNowPlayingAuth(c: Context): Response | null {
   );
 }
 
-let devTokenCache: { token: string; expiresAt: number } | null = null;
+const devTokenCache = new Map<string, { token: string; expiresAt: number }>();
 
-async function getDeveloperToken(): Promise<string> {
+// Pass `origins` for tokens used by MusicKit JS in a browser (setup page).
+// Server-side polling uses a token WITHOUT an origin claim.
+async function getDeveloperToken(origins: string[] = []): Promise<string> {
   const missing = missingForDevToken();
   if (missing.length) {
     throw new Error(setupErrorMessage(missing));
@@ -386,22 +388,34 @@ async function getDeveloperToken(): Promise<string> {
   }
 
   const now = Date.now();
-  if (devTokenCache && devTokenCache.expiresAt - now > 60_000) {
-    return devTokenCache.token;
+  const cacheKey = origins.slice().sort().join(",");
+  const cached = devTokenCache.get(cacheKey);
+  if (cached && cached.expiresAt - now > 60_000) {
+    return cached.token;
   }
 
   const privateKey = await importPKCS8(APPLE_PRIVATE_KEY, "ES256");
   const expiresInSeconds = 43_200;
 
-  const token = await new SignJWT({})
+  const token = await new SignJWT(origins.length ? { origin: origins } : {})
     .setProtectedHeader({ alg: "ES256", kid: APPLE_KEY_ID })
     .setIssuer(APPLE_TEAM_ID)
     .setIssuedAt()
     .setExpirationTime(`${expiresInSeconds}s`)
     .sign(privateKey);
 
-  devTokenCache = { token, expiresAt: now + expiresInSeconds * 1_000 };
+  devTokenCache.set(cacheKey, { token, expiresAt: now + expiresInSeconds * 1_000 });
   return token;
+}
+
+function browserOrigin(c: Context): string[] {
+  const override = (process.env.MUSICKIT_ORIGINS ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  if (override.length) {
+    return override;
+  }
+  const host = c.req.header("x-forwarded-host") ?? c.req.header("host") ?? "";
+  const proto = (c.req.header("x-forwarded-proto") ?? new URL(c.req.url).protocol.replace(":", "")).split(",")[0].trim();
+  return host ? [`${proto}://${host}`] : [];
 }
 
 interface NowPlayingTrack {
@@ -660,7 +674,11 @@ app.use("*", async (c, next) => {
 
   c.header("X-Content-Type-Options", "nosniff");
   c.header("X-Frame-Options", "DENY");
-  c.header("Referrer-Policy", "no-referrer");
+  // MusicKit JS authorize() needs the page origin; "no-referrer" breaks it.
+  c.header(
+    "Referrer-Policy",
+    c.req.path.startsWith("/setup") ? "strict-origin-when-cross-origin" : "no-referrer",
+  );
   c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   if (c.req.path !== "/health") {
     c.header("Cache-Control", "no-store");
@@ -837,7 +855,7 @@ app.get("/dev-token", async (c) => {
   }
 
   try {
-    const token = await getDeveloperToken();
+    const token = await getDeveloperToken(browserOrigin(c));
     return c.json({ token });
   } catch (err) {
     return c.json({ error: String(err) }, 400);
